@@ -460,6 +460,7 @@ const { results } = await env.DB.prepare(
 - **Cloudflare D1** - Not yet provisioned in this project; Phase 2 creates the database and binding.
 - **Zod** - Not currently installed (`package.json` has no `zod` entry). Needed to validate the register/login request bodies per `.cursor/rules/nextjs.mdc` and `.cursor/BUGBOT.md`. Propose to the user before installing, per the "ask before adding a dependency" working agreement.
 - **shadcn/ui components** - `field`, `input`, `label`, `button`, `card` are already installed under `src/components/ui/` and cover the form needs of this feature.
+- **esbuild** (`^0.27.0`, devDependency) - Not related to this feature's logic, but needed to unblock `npm run build`/`preview`/`deploy` locally; see Troubleshooting Guide for why. Added with the user's approval.
 
 ---
 
@@ -487,6 +488,12 @@ const { results } = await env.DB.prepare(
 ---
 
 ## Troubleshooting Guide
+
+### `npm run deploy`/`preview`/`build` fails with `Cannot find package 'esbuild'`
+**Problem**: Running `npm run deploy` failed immediately with `Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'esbuild' imported from .../node_modules/@opennextjs/cloudflare/dist/cli/build/bundle-server.js`.
+**Cause**: `@opennextjs/cloudflare` imports `esbuild` at runtime in its build/deploy CLI code, but lists `esbuild` under its own `devDependencies`, not `dependencies`. npm never installs a dependency's `devDependencies` when that package is installed as a dependency of another project, so `esbuild` never lands anywhere Node's module resolution can find it from inside `@opennextjs/cloudflare` — even though `wrangler` and `@opennextjs/aws` each carry their own nested `esbuild` copies for their own use. This is a known packaging gap in `@opennextjs/cloudflare` (confirmed via web search — the documented workaround is to add `esbuild` explicitly as a devDependency in the consuming project).
+**Solution**: Added `esbuild@^0.27.0` (resolved to `0.27.7`) as a devDependency at the project root, matching `@opennextjs/cloudflare`'s own required range. This installs it at the top level of `node_modules`, where it's resolvable from any nested package. Verified with `node -e "console.log(require('esbuild').version)"` and confirmed `npm run test`/`npm run lint` still pass. Approved by the user before installing, per the "ask before adding a dependency" working agreement.
+**Code Reference**: `package.json` (`esbuild` devDependency)
 
 ### `npm install` ERESOLVE conflict on `@vitejs/plugin-react`
 **Problem**: `npm install -D vitest @vitejs/plugin-react ...` failed with an `ERESOLVE` error about conflicting `@babel/core` versions.
@@ -527,5 +534,5 @@ Add further entries here as they come up during implementation, using the format
 **Current Phase**: Phase 2 - Provision D1 and Create the Users Table - COMPLETED. Awaiting review before starting Phase 3.
 **Status**: Phases 1–2 COMPLETED; Phase 3 (User Service and Password Hashing) PLANNED
 **D1 database**: `quiz-maker-db` (id `df973b4b-fd9b-4f30-a539-ec04f6abfe43`, region APAC), bound as `DB`. Migration `0001_create_users_table.sql` applied to the **local** instance only; remote is untouched.
-**Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase. `main` has not been touched.
+**Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase. `main` has not been touched. The project directory was moved from a OneDrive-synced path to `C:\Users\VR99922\Projects\quiz_maker_aisprint` (see Troubleshooting Guide) — git history carried over intact.
 **Next Steps**: Awaiting review of Phase 2, then proceed to Phase 3 (password hashing utility, Zod schemas, and the user service — the first phase that needs a decision on whether to install `zod`).
