@@ -249,7 +249,7 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 - `migrations/create_users_table.test.ts` — done.
 - Confirmed the remote database was **not** touched — only `--local` commands were run.
 
-### Phase 3: User Service and Password Hashing - PLANNED
+### Phase 3: User Service and Password Hashing - COMPLETED
 
 **Objective**: Centralize all database access and password-hashing logic behind a small set of reusable modules.
 
@@ -279,10 +279,22 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 - Red: all of the above fail on an empty `src/lib/`, since none of these modules exist yet.
 - Green: implementing tasks 1–3 makes each test pass without loosening any assertion.
 
+**Red (confirmed)**: `npm run test` failed all 3 new suites with "Failed to resolve import" errors for `@/lib/crypto/password`, `@/lib/schemas/user`, and `@/lib/services/user-service` — the right reason, since none of those files existed yet. The 2 pre-existing sanity-test suites still passed (14 passed / 3 failed suites).
+
+**Green (confirmed)**: After implementing all three modules, `npm run test` passed 36/36 (later 34/34 once the Phase 1 throwaway sanity test was deleted per its own "delete once real tests exist" note — see Implementation note below).
+
 **Deliverables**:
-- `src/lib/crypto/password.ts` + `src/lib/crypto/password.test.ts`
-- `src/lib/schemas/user.ts` + `src/lib/schemas/user.test.ts`
-- `src/lib/services/user-service.ts` + `src/lib/services/user-service.test.ts`
+- `src/lib/crypto/password.ts` + `src/lib/crypto/password.test.ts` — done.
+- `src/lib/schemas/user.ts` + `src/lib/schemas/user.test.ts` — done.
+- `src/lib/services/user-service.ts` + `src/lib/services/user-service.test.ts` — done.
+- `zod@^4.4.3` added as a regular dependency, after user approval.
+
+**Implementation notes**:
+- `createUser`/`updateUser` use a single `INSERT ... RETURNING` / `UPDATE ... RETURNING` statement and catch the D1 `UNIQUE constraint failed` error to throw a `DuplicateUserError`, rather than checking uniqueness with a separate `SELECT` first — this relies on the database-level unique index as the source of truth (matching the Acceptance Criterion that duplicates are rejected "independent of any application-level check") and avoids a check-then-insert race condition.
+- `updateUser` builds its `SET` clause from a fixed, hardcoded column allowlist (`UPDATABLE_COLUMNS`) — only column *names* from that allowlist are interpolated into the SQL string; every bound *value* still goes through numbered placeholders (`?1`, `?2`, ...), so no user-supplied data is ever concatenated into SQL text.
+- Deleted `src/lib/sanity.test.ts` (the Phase 1 throwaway smoke test) now that real tests exist across Phases 2–3, per its own comment that it should be removed once Phase 2's real tests exist — that cleanup had been missed at the end of Phase 2.
+- `npx tsc --noEmit` surfaced two type-only issues fixed during this phase: (1) `crypto.subtle.deriveBits`'s `salt` option expects `BufferSource`, but a plain `Uint8Array` from `crypto.getRandomValues` type-checks as `Uint8Array<ArrayBufferLike>` under this project's TS/lib version combination, which isn't assignable — fixed with a local `as BufferSource` cast (safe: the runtime value is always a real `ArrayBuffer`-backed view); (2) mock functions built with `vi.fn(() => ...)` infer a zero-argument call signature, which broke tuple-indexed assertions like `mockBind.mock.calls[0][0]` — fixed by giving `vi.fn` an explicit generic type argument (e.g. `vi.fn<(sql: string) => ...>(() => ...)`) instead of inferring it from the no-arg implementation.
+- `npm run lint` and `npx tsc --noEmit` are both clean (zero errors, zero warnings) as of this phase.
 
 ### Phase 4: Auth API Endpoints - PLANNED
 
@@ -458,7 +470,7 @@ const { results } = await env.DB.prepare(
 
 - **Vitest** (+ `@vitejs/plugin-react`, `@testing-library/react`, `@testing-library/user-event`, `jsdom`, `vite-tsconfig-paths`) - Not currently installed; Phase 1 installs and configures it. Approved directly by the user as the project's testing framework for this feature — no further confirmation needed before installing.
 - **Cloudflare D1** - Not yet provisioned in this project; Phase 2 creates the database and binding.
-- **Zod** - Not currently installed (`package.json` has no `zod` entry). Needed to validate the register/login request bodies per `.cursor/rules/nextjs.mdc` and `.cursor/BUGBOT.md`. Propose to the user before installing, per the "ask before adding a dependency" working agreement.
+- **Zod** (`^4.4.3`) - Installed in Phase 3, with the user's approval, to validate the register/login request bodies per `.cursor/rules/nextjs.mdc` and `.cursor/BUGBOT.md`. Used in `src/lib/schemas/user.ts`.
 - **shadcn/ui components** - `field`, `input`, `label`, `button`, `card` are already installed under `src/components/ui/` and cover the form needs of this feature.
 - **esbuild** (`^0.27.0`, devDependency) - Not related to this feature's logic, but needed to unblock `npm run build`/`preview`/`deploy` locally; see Troubleshooting Guide for why. Added with the user's approval.
 
@@ -531,8 +543,9 @@ Add further entries here as they come up during implementation, using the format
 ## Current Status
 
 **Last Updated**: August 27, 2026
-**Current Phase**: Phase 2 - Provision D1 and Create the Users Table - COMPLETED. Awaiting review before starting Phase 3.
-**Status**: Phases 1–2 COMPLETED; Phase 3 (User Service and Password Hashing) PLANNED
-**D1 database**: `quiz-maker-db` (id `df973b4b-fd9b-4f30-a539-ec04f6abfe43`, region APAC), bound as `DB`. Migration `0001_create_users_table.sql` applied to the **local** instance only; remote is untouched.
-**Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase. `main` has not been touched. The project directory was moved from a OneDrive-synced path to `C:\Users\VR99922\Projects\quiz_maker_aisprint` (see Troubleshooting Guide) — git history carried over intact.
-**Next Steps**: Awaiting review of Phase 2, then proceed to Phase 3 (password hashing utility, Zod schemas, and the user service — the first phase that needs a decision on whether to install `zod`).
+**Current Phase**: Phase 3 - User Service and Password Hashing - COMPLETED. Awaiting review before starting Phase 4.
+**Status**: Phases 1–3 COMPLETED; Phase 4 (Auth API Endpoints) PLANNED
+**D1 database**: `quiz-maker-db` (id `df973b4b-fd9b-4f30-a539-ec04f6abfe43`, region APAC), bound as `DB`. Migration `0001_create_users_table.sql` applied to the **local** instance only; remote is untouched (the user is handling the push to production separately, outside this session).
+**Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase, only after user review. `main` has not been touched. The project directory was moved from a OneDrive-synced path to `C:\Users\VR99922\Projects\quiz_maker_aisprint` during Phase 3 review (see Troubleshooting Guide) — git history carried over intact.
+**Session constraint (still in effect)**: per explicit user direction, no new migrations and no `--remote` D1 or deploy commands should be run this session — the user is handling migrations-to-production and deploys themselves.
+**Next Steps**: Awaiting review of Phase 3, then proceed to Phase 4 (the three `/api/auth/*` route handlers built on top of the Phase 3 user service and schemas).
