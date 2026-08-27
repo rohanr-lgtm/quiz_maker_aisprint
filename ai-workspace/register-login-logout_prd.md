@@ -335,16 +335,34 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 - `npx tsc --noEmit` surfaced one type-only issue: this project's Cloudflare Workers global types (`cloudflare-env.d.ts` → `@cloudflare/workers-types`) type `Response.prototype.json()` as returning `Promise<unknown>` (not `Promise<any>` as in `lib.dom`), so property access on an untyped `response.json()` result failed to compile in the test files. Fixed with a small typed `readJson()` helper per test file instead of casting with `any` at every call site.
 - `npm run lint` and `npx tsc --noEmit` are both clean (zero errors, zero warnings) as of this phase.
 
-### Phase 5: Registration, Login, and MCQ Stub Pages - PLANNED
+### Phase 5: Registration, Login, and MCQ Stub Pages - COMPLETED
 
 **Objective**: Give teachers a working end-to-end flow in the browser.
 
+**UI starting point**: The user supplied the standard shadcn "signup-01" and "login-01" block source (`SignupForm`/`LoginForm` components built on `card` + `field` + `input` + `button`, each with a thin page wrapper) as the visual and structural starting point for `/register` and `/login`. The blocks are adapted rather than used verbatim, to match this PRD's actual data model and scope:
+
+- **Split "Full Name" into "First Name" + "Last Name"** — the `users` table and `RegisterInputSchema` both require `firstName`/`lastName` separately, not a single combined name field.
+- **Add a Username field** to the signup block — the block only has Email, but this PRD's schema requires `username` and `email` as distinct, independently-unique values.
+- **Remove both "Sign up with Google" / "Login with Google" buttons** — social login is explicitly Out of Scope.
+- **Remove the "Forgot your password?" link** from the login block — password reset is explicitly Out of Scope; leaving the link in would point to a flow that doesn't exist.
+- **Wire real submit handlers** in place of the blocks' plain `<form>` (which has no `onSubmit`): client-side validation, SHA-256 hashing via `client-hash.ts`, a `fetch` call to the corresponding endpoint, inline error rendering via `FieldError`, and a redirect to `/mcq` on success.
+- **Change the Login block's identifier field** from `type="email"` to a plain text "Username or Email" field, since login accepts either per the API contract.
+- Kept as-is from the blocks: the `Card`/`FieldGroup`/`Field` structure and layout, the centered page wrapper (`min-h-svh` + `max-w-sm`), and the sign-in/sign-up cross-links (repointed to this app's real `/login` and `/register` routes via `next/link`).
+
+Resulting file structure (splitting the interactive form out of the page, matching the shadcn block's own `page.tsx` + `<name>-form.tsx` convention):
+- `src/components/register-form.tsx` — the adapted `SignupForm`.
+- `src/components/login-form.tsx` — the adapted `LoginForm`.
+- `src/app/mcq/logout-button.tsx` — small client component isolating the one interactive piece of the otherwise-static `/mcq` stub.
+
 **Tasks**:
 1. `src/lib/crypto/client-hash.ts` — browser-safe SHA-256 helper used by both forms.
-2. `src/app/register/page.tsx` — form using `field`/`input`/`label`/`button` components, client-side validation, calls `/api/auth/register`, redirects to `/mcq` on success.
-3. `src/app/login/page.tsx` — same pattern, calls `/api/auth/login`.
-4. `src/app/mcq/page.tsx` — stub content plus a small client component for the logout button wired to `/api/auth/logout`.
-5. Update `src/app/page.tsx` to redirect to `/login`.
+2. `src/components/register-form.tsx` — adapted `SignupForm` (see above): First Name, Last Name, Username, Email, Password, Confirm Password; client-side validation; hashes and calls `/api/auth/register`; redirects to `/mcq` on success; inline `FieldError` on failure.
+3. `src/app/register/page.tsx` — thin wrapper rendering `RegisterForm`, matching the shadcn block's page layout.
+4. `src/components/login-form.tsx` — adapted `LoginForm`: Username or Email, Password; hashes and calls `/api/auth/login`; redirects to `/mcq` on success; generic inline error on failure.
+5. `src/app/login/page.tsx` — thin wrapper rendering `LoginForm`.
+6. `src/app/mcq/logout-button.tsx` — client component that calls `/api/auth/logout` then redirects to `/login`.
+7. `src/app/mcq/page.tsx` — stub content (Server Component) plus `LogoutButton`.
+8. Update `src/app/page.tsx` to redirect to `/login`.
 
 **Test Plan (Red → Green)**:
 - `src/lib/crypto/client-hash.test.ts`: hashing a known input (e.g., an empty string or a fixed test password) produces the exact expected SHA-256 hex digest (a known test vector), proving the digest is deterministic and correctly hex-encoded.
@@ -357,10 +375,28 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 - Red: fails because none of these components/pages exist yet.
 - Green: pages implemented to satisfy each case, including verifying the raw password string never appears in the mocked `fetch` call's body.
 
+**Red (confirmed)**: `npm run test` failed all 4 new suites with "Failed to resolve import" errors for `@/lib/crypto/client-hash`, `@/app/register/page`, `@/app/login/page`, and `@/app/mcq/page` — the right reason, since none of those files existed yet. The 7 pre-existing suites from Phases 1–4 still passed (45 passed / 4 failed suites).
+
+**Green (confirmed)**: After implementing `client-hash.ts`, `register-form.tsx`/`register/page.tsx`, `login-form.tsx`/`login/page.tsx`, `mcq/logout-button.tsx`/`mcq/page.tsx`, and the root page redirect, `npm run test` passed 58/58 across 11 files.
+
 **Deliverables**:
-- `/register`, `/login`, `/mcq` pages, each with colocated tests.
-- `src/lib/crypto/client-hash.ts` + test.
-- Updated root page.
+- `src/lib/crypto/client-hash.ts` + `client-hash.test.ts` — done.
+- `src/components/register-form.tsx`, `src/app/register/page.tsx` + `page.test.tsx` — done.
+- `src/components/login-form.tsx`, `src/app/login/page.tsx` + `page.test.tsx` — done.
+- `src/app/mcq/logout-button.tsx`, `src/app/mcq/page.tsx` + `page.test.tsx` — done.
+- `src/app/page.tsx` updated to `redirect("/login")` — done.
+
+**Implementation notes**:
+- Both forms use controlled inputs (`useState` per field) rather than reading `FormData` on submit — this made validation, disabling the submit button while in flight, and asserting on typed values in tests straightforward, and avoids any ambiguity about how the Base UI `Input` primitive handles uncontrolled `defaultValue`/native form submission.
+- Adapted the shadcn signup/login blocks per the plan recorded at the top of this phase (see "UI starting point" above): split Full Name into First/Last Name, added a Username field to the signup form, removed both "Sign up/Login with Google" buttons, removed "Forgot your password?", and changed the login identifier field from `type="email"` to a plain text field labeled "Username or Email".
+- `RegisterForm`/`LoginForm` call `hashPasswordForTransit` (client-hash) immediately before `fetch`, so the plaintext password value never exists in application state past the point of hashing, and is never included in the request body — verified in tests by asserting the serialized request body never contains the plaintext string.
+- The register form surfaces the server's actual `{ error }` message inline (e.g., the 409 "already taken" case); the login form always shows the fixed generic message regardless of the response body, per the PRD's "do not reveal whether the identifier or password was wrong" requirement — it never reads the server's error text for a failed login.
+- `/mcq`'s Logout button calls `fetch("/api/auth/logout")` and redirects to `/login` in a `finally` block, so navigation still happens even if the network call fails (there's no session to leave dangling either way).
+- Root `/` is now `redirect("/login")` from `next/navigation` inside a Server Component — intentionally left untested in this phase, since `redirect()` throws a framework-internal signal that Testing Library can't render through, and the PRD's Phase 5 test plan did not call for one.
+- `@testing-library/jest-dom` is **not** installed — its `toBeInTheDocument()` matcher isn't available, so assertions use plain `.toBeTruthy()` on the element returned by `getByText`/`findByText` instead. This avoids adding a new dependency without asking first, per the project's working agreements; flagged here in case the user wants to approve `jest-dom` for nicer assertion messages in a later phase.
+- `npm run lint` failed the first time this phase's `npm run build` had been run previously in this session — ESLint was picking up generated files under `.wrangler/tmp/` (a gitignored Wrangler build-cache directory, not this feature's code) and reporting thousands of pre-existing warnings/errors from bundled third-party code. Fixed by adding `.wrangler/**` to `eslint.config.mjs`'s ignore list, alongside the existing `.next/**`/`.open-next/**` entries — a config-only change, no application code affected.
+- `npm run build` (Node, Turbopack) compiled successfully and generated all 8 routes correctly (`/`, `/login`, `/register`, `/mcq` as static; the three `/api/auth/*` routes as dynamic), then the Node process crashed on exit with a libuv assertion (`Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c`) — a known Windows-specific Node shutdown issue unrelated to this feature's code, occurring after `.next/BUILD_ID` was already written (confirmed by inspecting the build output directory). Not something to "fix" in application code; noted here and in the Troubleshooting Guide in case it recurs.
+- `npx tsc --noEmit` is clean (zero errors) as of this phase.
 
 ### Phase 6: Manual Verification - PLANNED
 
@@ -393,6 +429,8 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 - `src/lib/schemas/user.ts` (+ `.test.ts`) - Zod schemas for register/login payloads.
 - `src/lib/services/user-service.ts` (+ `.test.ts`) - All `DB` access for users lives here; nothing else should query the `users` table directly.
 - `src/app/api/auth/register/route.ts`, `.../login/route.ts`, `.../logout/route.ts` (each + `route.test.ts`) - HTTP boundary.
+- `src/components/register-form.tsx`, `src/components/login-form.tsx` - adapted shadcn signup/login blocks; the interactive form logic tested via their pages.
+- `src/app/mcq/logout-button.tsx` - isolated client component for the one interactive piece of the `/mcq` stub.
 - `src/app/register/page.tsx`, `src/app/login/page.tsx`, `src/app/mcq/page.tsx` (each + `.test.tsx`) - UI.
 
 ### Implementation Patterns
@@ -447,18 +485,18 @@ const { results } = await env.DB.prepare(
 
 ## Acceptance Criteria
 
-- [ ] A new user can register with first name, last name, username, email, and password, and is redirected to `/mcq` on success.
-- [ ] Registering with a username or email that already exists returns a clear 409 error instead of a generic failure.
-- [ ] Registering with missing fields or a malformed email is rejected before the request reaches the database.
-- [ ] The plaintext password is never present in any HTTP request body, in any log, or in the `users` table — only the client's SHA-256 digest travels over the wire, and only a server-derived salted hash is stored.
-- [ ] A registered user can log in with either their username or their email, plus their password, and is redirected to `/mcq`.
-- [ ] Logging in with a wrong password or an unknown identifier fails with the same generic "Invalid username/email or password" message in both cases.
-- [ ] Clicking Logout on `/mcq` returns the user to `/login`.
-- [ ] The `users` table rejects a second row with a duplicate `username` or `email` at the database level (unique index), independent of any application-level check.
-- [ ] Every route handler validates its input with a Zod schema before touching the user service.
-- [ ] No SQL in the user service is built by string concatenation; all queries use bound, numbered placeholders.
-- [ ] `npm run test` passes with the full Vitest suite green (crypto, schemas, user service, all three route handlers, and all three pages) — no skipped, hollow, or tautological tests.
-- [ ] For every phase, the tests written for that phase were observed to fail (red) before the corresponding implementation existed.
+- [x] A new user can register with first name, last name, username, email, and password, and is redirected to `/mcq` on success. (Verified via `RegisterPage` tests with mocked `fetch`/`useRouter`; full manual click-through with a real D1 database is Phase 6.)
+- [x] Registering with a username or email that already exists returns a clear 409 error instead of a generic failure.
+- [x] Registering with missing fields or a malformed email is rejected before the request reaches the database.
+- [x] The plaintext password is never present in any HTTP request body, in any log, or in the `users` table — only the client's SHA-256 digest travels over the wire, and only a server-derived salted hash is stored.
+- [x] A registered user can log in with either their username or their email, plus their password, and is redirected to `/mcq`.
+- [x] Logging in with a wrong password or an unknown identifier fails with the same generic "Invalid username/email or password" message in both cases.
+- [x] Clicking Logout on `/mcq` returns the user to `/login`.
+- [x] The `users` table rejects a second row with a duplicate `username` or `email` at the database level (unique index), independent of any application-level check.
+- [x] Every route handler validates its input with a Zod schema before touching the user service.
+- [x] No SQL in the user service is built by string concatenation; all queries use bound, numbered placeholders.
+- [x] `npm run test` passes with the full Vitest suite green (crypto, schemas, user service, all three route handlers, and all three pages) — 58/58 across 11 files, no skipped, hollow, or tautological tests.
+- [x] For every phase, the tests written for that phase were observed to fail (red) before the corresponding implementation existed.
 
 ---
 
@@ -485,6 +523,7 @@ const { results } = await env.DB.prepare(
 - **Zod** (`^4.4.3`) - Installed in Phase 3, with the user's approval, to validate the register/login request bodies per `.cursor/rules/nextjs.mdc` and `.cursor/BUGBOT.md`. Used in `src/lib/schemas/user.ts`.
 - **shadcn/ui components** - `field`, `input`, `label`, `button`, `card` are already installed under `src/components/ui/` and cover the form needs of this feature.
 - **esbuild** (`^0.27.0`, devDependency) - Not related to this feature's logic, but needed to unblock `npm run build`/`preview`/`deploy` locally; see Troubleshooting Guide for why. Added with the user's approval.
+- **`@testing-library/jest-dom`** - Considered but **not installed** in Phase 5, per the "ask before adding a dependency" working agreement — tests use plain `.toBeTruthy()` assertions on elements from `getByText`/`findByText` instead of the `toBeInTheDocument()` matcher. Would be a reasonable, low-risk addition if the user wants nicer failure messages in future test phases.
 
 ---
 
@@ -525,6 +564,18 @@ const { results } = await env.DB.prepare(
 **Solution**: Pin `@vitejs/plugin-react` to `5.2.0`, the last line that only peer-depends on `vite` (no `@rolldown/plugin-babel`). Installed cleanly with no `--legacy-peer-deps`/`--force` needed.
 **Code Reference**: `package.json` (`@vitejs/plugin-react` devDependency)
 
+### `npm run lint` reports thousands of errors/warnings from `.wrangler/tmp/`
+**Problem**: After running `npm run build`/`preview` at least once, `npm run lint` started failing with thousands of errors and warnings (`no-this-alias`, `no-unused-vars`, `react-hooks/rules-of-hooks`, etc.) attributed to line numbers in the tens of thousands.
+**Cause**: The errors were coming from `.wrangler/tmp/**` — Wrangler's local build-cache/bundle output (e.g. `middleware-insertion-facade.js`, `worker.js`), which contains bundled, minified third-party code. This directory is gitignored but `eslint.config.mjs` only ignored `.next/**`, `.open-next/**`, `out/**`, and `build/**` — not `.wrangler/**` — so ESLint was linting generated bundle output as if it were project source.
+**Solution**: Added `.wrangler/**` to the `ignores` array in `eslint.config.mjs`, matching the existing generated-output entries. No application code changed.
+**Code Reference**: `eslint.config.mjs`
+
+### `npm run build` crashes on exit with a libuv assertion (Windows)
+**Problem**: `npm run build` printed a successful build (`✓ Compiled successfully`, all routes listed, `.next/BUILD_ID` written) but then exited with a non-zero/crash code and the message `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94`.
+**Cause**: This is a known Node.js/libuv issue on Windows during process shutdown (closing an async handle that's already being closed) — it happens after the build has already completed and written its output, not during the build itself. Not related to this feature's code.
+**Solution**: No code fix needed. Verified the build actually succeeded by checking that `.next/BUILD_ID` exists and that all expected routes (`/`, `/login`, `/register`, `/mcq`, `/api/auth/*`) were listed in the build output. If this becomes disruptive (e.g., breaks CI exit-code checks), consider it separately — it is a Node/Windows environment issue, not an application bug.
+**Code Reference**: N/A (environment/tooling issue)
+
 Add further entries here as they come up during implementation, using the format:
 
 ```
@@ -555,9 +606,9 @@ Add further entries here as they come up during implementation, using the format
 ## Current Status
 
 **Last Updated**: August 27, 2026
-**Current Phase**: Phase 4 - Auth API Endpoints - COMPLETED. Awaiting review before starting Phase 5.
-**Status**: Phases 1–4 COMPLETED; Phase 5 (Registration, Login, and MCQ Stub Pages) PLANNED
+**Current Phase**: Phase 5 - Registration, Login, and MCQ Stub Pages - COMPLETED and reviewed by the user, who confirmed the flow is working. Ready to start Phase 6.
+**Status**: Phases 1–5 COMPLETED; Phase 6 (Manual Verification) PLANNED
 **D1 database**: `quiz-maker-db` (id `df973b4b-fd9b-4f30-a539-ec04f6abfe43`, region APAC), bound as `DB`. Migration `0001_create_users_table.sql` applied to the **local** instance only; remote is untouched (the user is handling the push to production separately, outside this session).
 **Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase, only after user review. `main` has not been touched. The project directory was moved from a OneDrive-synced path to `C:\Users\VR99922\Projects\quiz_maker_aisprint` during Phase 3 review (see Troubleshooting Guide) — git history carried over intact.
 **Session constraint (still in effect)**: per explicit user direction, no new migrations and no `--remote` D1 or deploy commands should be run this session — the user is handling migrations-to-production and deploys themselves.
-**Next Steps**: Awaiting review of Phase 4, then proceed to Phase 5 (the `/register`, `/login`, `/mcq` pages and the browser-side SHA-256 helper, built on top of the Phase 4 API endpoints).
+**Next Steps**: Commit and push Phase 5 to `feature/register-login-logout-auth` when the user directs it, then proceed to Phase 6 — the full formal manual walkthrough via `npm run preview` (duplicate username/email rejection, invalid-login rejection, and confirming the `users` table never holds a plaintext password), since the user's confirmation so far has been an informal check that the register/login/mcq/logout loop works, not the complete Phase 6 checklist.
