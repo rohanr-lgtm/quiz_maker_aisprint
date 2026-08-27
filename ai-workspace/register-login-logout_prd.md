@@ -224,7 +224,7 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 
 **Implementation note**: `@vitejs/plugin-react@6.x` (latest) pulls in `@rolldown/plugin-babel`, which has a peer conflict with `@babel/core` versions already required elsewhere in this project (via `shadcn`), causing `npm install` to fail with `ERESOLVE`. Pinned to `@vitejs/plugin-react@5.2.0`, which only peer-depends on `vite` and installs cleanly. `npm run lint` and `npm run test` both pass after this change.
 
-### Phase 2: Provision D1 and Create the Users Table - PLANNED
+### Phase 2: Provision D1 and Create the Users Table - COMPLETED
 
 **Objective**: Get a real database in place before writing any application code against it.
 
@@ -238,15 +238,16 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 
 **Test Plan (Red → Green)**:
 - This phase is infrastructure/config, not application logic, so its "test" is a lightweight schema-contract check rather than behavior mocked in memory — real coverage of query behavior comes in Phase 3 against a mocked `DB`.
-- Add `migrations/create_users_table.test.ts`: read the migration file(s) under `migrations/` from disk and assert the SQL text contains `CREATE TABLE users`, and each required column (`first_name`, `last_name`, `username`, `email`, `password_hash`, `password_salt`), plus both `UNIQUE INDEX` statements on `username` and `email`.
-- Red: fails immediately, since no migration file exists yet.
-- Green: passes once the migration file (task 5) is written. Confirm separately, by hand, that `wrangler d1 migrations apply --local` succeeds — that step isn't Vitest's job.
+- Added `migrations/create_users_table.test.ts`: reads every `.sql` file under `migrations/` from disk and asserts the SQL text contains `CREATE TABLE users`, each required column (`id`, `first_name`, `last_name`, `username`, `email`, `password_hash`, `password_salt`, `created_at`, `updated_at`), and `CREATE UNIQUE INDEX` statements on `users (username)` and `users (email)`.
+- Red: confirmed — all 12 assertions failed against the empty, freshly-generated `0001_create_users_table.sql` stub.
+- Green: confirmed — all 12 assertions pass after the migration SQL (task 5) was written.
 
 **Deliverables**:
-- `wrangler.jsonc` updated with the `DB` binding.
-- `cloudflare-env.d.ts` regenerated (generated file — do not hand-edit).
-- One migration file under `migrations/` creating the `users` table.
-- `migrations/create_users_table.test.ts`
+- `wrangler.jsonc` updated with the `DB` binding — done (`database_name: "quiz-maker-db"`, region APAC).
+- `cloudflare-env.d.ts` regenerated via `npm run cf-typegen` — done (`DB: D1Database` now typed).
+- `migrations/0001_create_users_table.sql` creating the `users` table and both unique indexes — done, and applied locally (`wrangler d1 migrations apply quiz-maker-db --local`), verified by querying `sqlite_master` directly against the local D1 instance.
+- `migrations/create_users_table.test.ts` — done.
+- Confirmed the remote database was **not** touched — only `--local` commands were run.
 
 ### Phase 3: User Service and Password Hashing - PLANNED
 
@@ -523,7 +524,8 @@ Add further entries here as they come up during implementation, using the format
 ## Current Status
 
 **Last Updated**: August 27, 2026
-**Current Phase**: Phase 1 - Testing Framework Setup - COMPLETED and pushed. Awaiting review before starting Phase 2.
-**Status**: Phase 1 COMPLETED; Phase 2 (Provision D1 and Create the Users Table) PLANNED
+**Current Phase**: Phase 2 - Provision D1 and Create the Users Table - COMPLETED. Awaiting review before starting Phase 3.
+**Status**: Phases 1–2 COMPLETED; Phase 3 (User Service and Password Hashing) PLANNED
+**D1 database**: `quiz-maker-db` (id `df973b4b-fd9b-4f30-a539-ec04f6abfe43`, region APAC), bound as `DB`. Migration `0001_create_users_table.sql` applied to the **local** instance only; remote is untouched.
 **Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase. `main` has not been touched.
-**Next Steps**: Awaiting review of Phase 1 (and the pushed branch/PR link), then proceed to Phase 2.
+**Next Steps**: Awaiting review of Phase 2, then proceed to Phase 3 (password hashing utility, Zod schemas, and the user service — the first phase that needs a decision on whether to install `zod`).
