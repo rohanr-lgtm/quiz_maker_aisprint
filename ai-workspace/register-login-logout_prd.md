@@ -398,7 +398,7 @@ Resulting file structure (splitting the interactive form out of the page, matchi
 - `npm run build` (Node, Turbopack) compiled successfully and generated all 8 routes correctly (`/`, `/login`, `/register`, `/mcq` as static; the three `/api/auth/*` routes as dynamic), then the Node process crashed on exit with a libuv assertion (`Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c`) — a known Windows-specific Node shutdown issue unrelated to this feature's code, occurring after `.next/BUILD_ID` was already written (confirmed by inspecting the build output directory). Not something to "fix" in application code; noted here and in the Troubleshooting Guide in case it recurs.
 - `npx tsc --noEmit` is clean (zero errors) as of this phase.
 
-### Phase 6: Manual Verification - PLANNED
+### Phase 6: Manual Verification - COMPLETED
 
 **Objective**: Confirm the full loop works end-to-end before calling this feature done — this is the one phase Vitest can't cover, since it spans real D1 and real HTTP over the Workers runtime.
 
@@ -412,8 +412,25 @@ Resulting file structure (splitting the interactive form out of the page, matchi
 **Test Plan (Red → Green)**:
 - No new automated tests — "green" for this phase means the full suite from every prior phase passes together (no regressions between phases) plus a clean manual walkthrough.
 
+**Result**: `npm run test` — 58/58 passed across 11 files (confirmed both before and after the manual walkthrough below, to catch any regression from Phase 6 activity itself).
+
+`npm run preview` (the actual Workers runtime) could not be completed — see "`npm run preview` blocked by a Windows file lock on `.open-next\assets`" in the Troubleshooting Guide. As a substitute, verification ran against `npm run dev`, which still exercises the **real local D1 database** (not a mock) because `next.config.ts` already calls `initOpenNextCloudflareForDev()`, which wires `getCloudflareContext()` to the same local D1 binding used by `wrangler`. This covers the database and API-endpoint behavior this phase cares about, but does **not** substitute for confirming the app also behaves correctly bundled and served by the actual `workerd` runtime — that gap is called out explicitly below and should be closed by re-running `npm run preview` once the file lock is cleared (see Troubleshooting Guide).
+
+Verification performed (via `curl` against `http://localhost:3002`, since no browser-automation tool was available in this session — the UI-level click-through itself still needs a human/browser pass):
+- `GET /` → `302` → redirects to `/login`. ✅
+- `POST /api/auth/register` with a new, unique username/email → `201`, `user` object returned. ✅
+- Repeating the identical register request → `409 { "error": "Username or email is already taken" }`. ✅
+- `POST /api/auth/login` with the correct username + correct `passwordHash` → `200`, `user` object returned. ✅
+- Same request by **email** instead of username → `200`, same user. ✅ (confirms `identifier` accepts either, per the API contract)
+- `POST /api/auth/login` with the correct identifier + a wrong `passwordHash` → `401 { "error": "Invalid username/email or password" }`. ✅
+- `POST /api/auth/login` with an unknown identifier → `401` with the **byte-identical** message as the wrong-password case. ✅ (confirms the generic-error requirement — no difference in wording, status, or timing behavior was introduced by this phase)
+- `POST /api/auth/logout` → `200 { "success": true }`. ✅
+- `npx wrangler d1 execute quiz-maker-db --local --command "select ... from users where username = '...'"` on the just-created test row → `password_hash` and `password_salt` were present, hex-encoded, and **neither matched the plaintext test password nor the client-side SHA-256 digest sent in the request** — confirming the server re-hashes with PBKDF2 and a per-user salt rather than storing the client's raw digest. ✅
+- Cleaned up: deleted the test user row from the local `users` table and all temporary `curl` payload files after verification; no leftover test data remains in local D1 or the working tree.
+
 **Deliverables**:
-- Confirmed working manual walkthrough, notes added to Troubleshooting Guide if issues are found.
+- Confirmed API-level walkthrough against real local D1 (see above); notes added to Troubleshooting Guide for the `npm run preview` blocker.
+- **Outstanding before this phase can be marked fully closed**: a human pass clicking through `/register` → `/login` → `/mcq` → Logout in an actual browser, and a successful `npm run preview` run once the Windows file-lock issue is resolved (e.g., after closing any Explorer/IDE windows browsing `.open-next`, or a machine restart).
 
 ---
 
@@ -576,6 +593,13 @@ const { results } = await env.DB.prepare(
 **Solution**: No code fix needed. Verified the build actually succeeded by checking that `.next/BUILD_ID` exists and that all expected routes (`/`, `/login`, `/register`, `/mcq`, `/api/auth/*`) were listed in the build output. If this becomes disruptive (e.g., breaks CI exit-code checks), consider it separately — it is a Node/Windows environment issue, not an application bug.
 **Code Reference**: N/A (environment/tooling issue)
 
+### `npm run preview` fails with `EPERM` on `.open-next\assets`
+**Problem**: `npm run preview` (which runs `opennextjs-cloudflare build` first) failed with `Error: EPERM, Permission denied: ... .open-next` while trying to delete the existing `.open-next` output directory before rebuilding it. Manually deleting `.open-next` (via `Remove-Item -Recurse -Force`, and separately via `cmd /c rmdir /s /q`) also failed with `The process cannot access the file '...\.open-next\assets' because it is being used by another process.`
+**Cause**: Some process on Windows is holding an open handle to the `.open-next\assets` directory. `Get-Process node,workerd` showed no Node/Workers processes running at the time, and the ports/PIDs referenced by a stale `next dev` lock file (`.next\dev\lock`) were also already dead — so this is not a currently-running build/dev/preview process. The most likely culprits are Windows Search Indexer, antivirus real-time scanning, or the IDE's own file watcher holding a transient handle on a folder that was very recently rewritten by a build. This is the same category of Windows file-lock issue documented above for OneDrive sync, but this instance occurred on the non-OneDrive path, so it isn't OneDrive-specific.
+**Workaround used**: Verified this feature's real-D1 behavior via `npm run dev` instead, which also gets a real local D1 connection because `next.config.ts` calls `initOpenNextCloudflareForDev()`. This is a valid substitute for testing API/database behavior, but it is **not** a substitute for confirming the app runs correctly under the actual `workerd`/Workers runtime — `npm run preview` should still be re-run once the lock clears.
+**Suggested fix (untried in this session)**: Close any File Explorer windows or editor tabs/panes currently browsing into `.open-next`, then retry; if that doesn't clear it, a full restart of the machine (or at minimum Explorer/the IDE) reliably releases this class of Windows handle lock.
+**Code Reference**: N/A (environment/tooling issue, not application code)
+
 Add further entries here as they come up during implementation, using the format:
 
 ```
@@ -606,9 +630,9 @@ Add further entries here as they come up during implementation, using the format
 ## Current Status
 
 **Last Updated**: August 27, 2026
-**Current Phase**: Phase 5 - Registration, Login, and MCQ Stub Pages - COMPLETED and reviewed by the user, who confirmed the flow is working. Ready to start Phase 6.
-**Status**: Phases 1–5 COMPLETED; Phase 6 (Manual Verification) PLANNED
-**D1 database**: `quiz-maker-db` (id `df973b4b-fd9b-4f30-a539-ec04f6abfe43`, region APAC), bound as `DB`. Migration `0001_create_users_table.sql` applied to the **local** instance only; remote is untouched (the user is handling the push to production separately, outside this session).
-**Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase, only after user review. `main` has not been touched. The project directory was moved from a OneDrive-synced path to `C:\Users\VR99922\Projects\quiz_maker_aisprint` during Phase 3 review (see Troubleshooting Guide) — git history carried over intact.
+**Current Phase**: Phase 6 - Manual Verification - COMPLETED at the API/database level; a browser click-through and a successful `npm run preview` run are still outstanding (see Phase 6 Deliverables and Troubleshooting Guide).
+**Status**: Phases 1–6 COMPLETED (Phase 6 with one caveat, see above). Feature is otherwise at the close of this PRD's scope.
+**D1 database**: `quiz-maker-db` (id `df973b4b-fd9b-4f30-a539-ec04f6abfe43`, region APAC), bound as `DB`. Migration `0001_create_users_table.sql` applied to the **local** instance only; remote is untouched (the user is handling the push to production separately, outside this session). The Phase 6 test user created during verification was deleted from the local database afterward — no leftover test data.
+**Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase, only after user review. `main` has not been touched. The project directory was moved from a OneDrive-synced path to `C:\Users\VR99922\Projects\quiz_maker_aisprint` during Phase 3 review (see Troubleshooting Guide) — git history carried over intact. Phase 5 (`016f131`) is committed and pushed.
 **Session constraint (still in effect)**: per explicit user direction, no new migrations and no `--remote` D1 or deploy commands should be run this session — the user is handling migrations-to-production and deploys themselves.
-**Next Steps**: Commit and push Phase 5 to `feature/register-login-logout-auth` when the user directs it, then proceed to Phase 6 — the full formal manual walkthrough via `npm run preview` (duplicate username/email rejection, invalid-login rejection, and confirming the `users` table never holds a plaintext password), since the user's confirmation so far has been an informal check that the register/login/mcq/logout loop works, not the complete Phase 6 checklist.
+**Next Steps**: This closes out the planned implementation phases for this PRD. Two loose ends worth the user's attention before considering it fully done: (1) a human browser click-through of `/register` → `/login` → `/mcq` → Logout, since this session verified the same flow at the HTTP/API level via `curl` rather than a real browser; (2) re-running `npm run preview` once the `.open-next` file-lock issue clears, to confirm the app also behaves correctly under the real `workerd` Workers runtime rather than only `next dev`. Beyond that, review this Phase 6 update and, when ready, commit/push it.
