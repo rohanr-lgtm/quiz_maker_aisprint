@@ -296,7 +296,7 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 - `npx tsc --noEmit` surfaced two type-only issues fixed during this phase: (1) `crypto.subtle.deriveBits`'s `salt` option expects `BufferSource`, but a plain `Uint8Array` from `crypto.getRandomValues` type-checks as `Uint8Array<ArrayBufferLike>` under this project's TS/lib version combination, which isn't assignable — fixed with a local `as BufferSource` cast (safe: the runtime value is always a real `ArrayBuffer`-backed view); (2) mock functions built with `vi.fn(() => ...)` infer a zero-argument call signature, which broke tuple-indexed assertions like `mockBind.mock.calls[0][0]` — fixed by giving `vi.fn` an explicit generic type argument (e.g. `vi.fn<(sql: string) => ...>(() => ...)`) instead of inferring it from the no-arg implementation.
 - `npm run lint` and `npx tsc --noEmit` are both clean (zero errors, zero warnings) as of this phase.
 
-### Phase 4: Auth API Endpoints - PLANNED
+### Phase 4: Auth API Endpoints - COMPLETED
 
 **Objective**: Expose the user service over HTTP so the browser can register, log in, and log out.
 
@@ -320,8 +320,20 @@ Test status is a build signal in addition to the Acceptance Criteria — a phase
 - Red: fails on missing route files / import errors.
 - Green: each handler implemented to satisfy every case above, including the negative/error paths — not just the happy path.
 
+**Red (confirmed)**: `npm run test` failed all 3 new suites with "Failed to resolve import" errors for `@/app/api/auth/register/route`, `@/app/api/auth/login/route`, and `@/app/api/auth/logout/route` — the right reason, since none of those route files existed yet. The 4 pre-existing suites from Phases 1–3 still passed (34 passed / 3 failed suites).
+
+**Green (confirmed)**: After implementing all three route handlers, `npm run test` passed 45/45 across 7 files.
+
 **Deliverables**:
-- Three route handlers under `src/app/api/auth/`, each with a colocated `route.test.ts`.
+- Three route handlers under `src/app/api/auth/` (`register`, `login`, `logout`), each with a colocated `route.test.ts` — done.
+
+**Implementation notes**:
+- Each handler is tested by calling `POST(request)` directly with a real `Request` object, per the Testing Strategy's convention — no HTTP server is spun up. `user-service` and `password` are mocked at the module boundary (`vi.mock`) so no test touches D1 or real PBKDF2 hashing.
+- `register`'s route returns the first Zod validation issue's message on `400` rather than the full issue list, keeping the error body small and consistent with the PRD's `{ "error": "message" }` contract.
+- `login` returns the identical `"Invalid username/email or password"` string for both an unknown identifier and a correct identifier with a wrong password — verified by asserting the exact string in both test cases — and never calls `verifyPassword` when the identifier lookup already failed, avoiding unnecessary PBKDF2 work.
+- `logout` has no dependencies at all (no D1, no user-service import) since there's no session to invalidate; its test mocks `user-service` anyway and asserts none of its functions were called, as an explicit guardrail against a future regression that accidentally wires in DB access.
+- `npx tsc --noEmit` surfaced one type-only issue: this project's Cloudflare Workers global types (`cloudflare-env.d.ts` → `@cloudflare/workers-types`) type `Response.prototype.json()` as returning `Promise<unknown>` (not `Promise<any>` as in `lib.dom`), so property access on an untyped `response.json()` result failed to compile in the test files. Fixed with a small typed `readJson()` helper per test file instead of casting with `any` at every call site.
+- `npm run lint` and `npx tsc --noEmit` are both clean (zero errors, zero warnings) as of this phase.
 
 ### Phase 5: Registration, Login, and MCQ Stub Pages - PLANNED
 
@@ -543,9 +555,9 @@ Add further entries here as they come up during implementation, using the format
 ## Current Status
 
 **Last Updated**: August 27, 2026
-**Current Phase**: Phase 3 - User Service and Password Hashing - COMPLETED. Awaiting review before starting Phase 4.
-**Status**: Phases 1–3 COMPLETED; Phase 4 (Auth API Endpoints) PLANNED
+**Current Phase**: Phase 4 - Auth API Endpoints - COMPLETED. Awaiting review before starting Phase 5.
+**Status**: Phases 1–4 COMPLETED; Phase 5 (Registration, Login, and MCQ Stub Pages) PLANNED
 **D1 database**: `quiz-maker-db` (id `df973b4b-fd9b-4f30-a539-ec04f6abfe43`, region APAC), bound as `DB`. Migration `0001_create_users_table.sql` applied to the **local** instance only; remote is untouched (the user is handling the push to production separately, outside this session).
 **Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase, only after user review. `main` has not been touched. The project directory was moved from a OneDrive-synced path to `C:\Users\VR99922\Projects\quiz_maker_aisprint` during Phase 3 review (see Troubleshooting Guide) — git history carried over intact.
 **Session constraint (still in effect)**: per explicit user direction, no new migrations and no `--remote` D1 or deploy commands should be run this session — the user is handling migrations-to-production and deploys themselves.
-**Next Steps**: Awaiting review of Phase 3, then proceed to Phase 4 (the three `/api/auth/*` route handlers built on top of the Phase 3 user service and schemas).
+**Next Steps**: Awaiting review of Phase 4, then proceed to Phase 5 (the `/register`, `/login`, `/mcq` pages and the browser-side SHA-256 helper, built on top of the Phase 4 API endpoints).
