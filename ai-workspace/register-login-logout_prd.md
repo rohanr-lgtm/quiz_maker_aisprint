@@ -523,6 +523,7 @@ Add further entries here as they come up during implementation, using the format
 ## Current Status
 
 **Last Updated**: August 27, 2026
-**Current Phase**: Phase 1 - Testing Framework Setup - COMPLETED. Awaiting review before starting Phase 2.
+**Current Phase**: Phase 1 - Testing Framework Setup - COMPLETED and pushed. Awaiting review before starting Phase 2.
 **Status**: Phase 1 COMPLETED; Phase 2 (Provision D1 and Create the Users Table) PLANNED
-**Next Steps**: Awaiting review of Phase 1, and direction on git branch/commit/push, before starting Phase 2. No git repository exists yet in this workspace (see note below) — confirm how you'd like source control set up before the first commit/push.
+**Source control**: Repo initialized locally, remote `origin` set to `https://github.com/rohanr-lgtm/quiz_maker_aisprint.git`. All work happens on `feature/register-login-logout-auth`, branched from `main`, with one commit pushed per phase. `main` has not been touched.
+**Next Steps**: Awaiting review of Phase 1 (and the pushed branch/PR link), then proceed to Phase 2.
