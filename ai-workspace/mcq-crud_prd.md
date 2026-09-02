@@ -492,9 +492,9 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 
 **Code Reference**: `src/components/mcq-preview.tsx`, `src/app/mcq/[id]/preview/page.tsx`
 
-### Phase 9: Manual Verification - PLANNED
+### Phase 9: Manual Verification - COMPLETED
 
-**Objective**: Confirm the full loop works end-to-end against real local D1, the one thing Vitest's mocks can't prove.
+**Objective**: Confirm the full loop works end-to-end against real D1, the one thing Vitest's mocks can't prove.
 
 **Tasks**:
 
@@ -505,7 +505,19 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 
 **Test Plan (Red → Green)**: No new automated tests — "green" means the full suite from every prior phase passes together plus a clean manual walkthrough.
 
-**Deliverables**: Confirmed walkthrough notes added to Current Status below.
+**Green (confirmed)**: Full suite (`npm run test`) 170/170 passing across 23 files, `npm run lint` clean, `npm run build` compiles/typechecks cleanly. User manually walked through create → list → edit → preview (both correct and incorrect answers) → delete against the deployed Cloudflare Worker (`https://quiz_maker_aisprint.rohan-r.workers.dev`) and confirmed the full loop works, including choice-count/correctness validation.
+
+**Deliverables**: Manual walkthrough confirmed by user; two production issues discovered and fixed during verification (see Implementation notes).
+
+**Implementation notes**:
+
+- The walkthrough was run against the **deployed** worker (real remote D1) rather than `npm run preview`, since the user had already deployed. This is a stricter check than the plan called for, not a shortcut.
+- Two issues surfaced only under real browser/production conditions (neither caught by Vitest, since jsdom and mocked `fetch`/D1 don't exercise them) and were fixed as mid-phase fixes, tests/lint/build re-verified green after each:
+  1. Base UI `Button` composed with `render={<Link .../>}` (an `<a>`, not a `<button>`) warned about lost native-button semantics — fixed with `nativeButton={false}` on the "Create Question" and "Back to Questions" buttons.
+  2. Base UI `RadioGroup` in `McqForm`/`McqPreview` passed `value={undefined}` before any selection and a real string after, which Base UI/React treat as switching between uncontrolled and controlled — fixed by always passing a defined string (`""` as the "nothing selected" sentinel).
+- The remote D1 database (`quiz-maker-db`) had never had `0002_create_mcq_tables.sql` applied to it — only to the local instance during development, per the normal TDD workflow — so the first deployed `/mcq` load 500'd. Applied with explicit user approval via `wrangler d1 migrations apply quiz-maker-db --remote` (per `AGENTS.md`'s "do not touch the remote database" rule, this required asking first); confirmed via `wrangler d1 migrations list --remote` showing "No migrations to apply!" and the page returning `200`.
+
+**Code Reference**: N/A — verification phase, no new source files.
 
 ---
 
@@ -575,18 +587,18 @@ export function clearCurrentUser(): void {
 
 ## Acceptance Criteria
 
-- [ ] A teacher can create a question with a name, a question prompt, and 2–6 choices with exactly one marked correct, and it appears in the `/mcq` list.
-- [ ] Creating a question with fewer than 2 choices, more than 6, zero correct choices, or more than one correct choice is rejected with a clear error before it reaches the database.
-- [ ] A teacher can edit an existing question's name, question text, and choice set (including changing which choice is correct), and the changes are reflected in the list and on reload.
-- [ ] A teacher can delete a question (after confirming), and it disappears from the list along with its choices and any attempts (cascade).
-- [ ] The Actions dropdown on each row offers exactly Edit, Preview, and Delete, opened via a vertical-ellipsis icon button.
-- [ ] Preview renders the question and choices without indicating which is correct, lets the previewer pick one and submit, and then clearly shows whether the pick was correct.
-- [ ] Submitting a preview answer creates a row in `mcq_attempts` with the correct `mcq_id`, `choice_id`, `attempted_by`, and `is_correct`.
-- [ ] `created_by` on a newly created question matches the id of whoever is currently logged in (per `client-identity`), and is empty/blocked with a clear message if no one is logged in.
-- [ ] Every route handler validates its input with a Zod schema before touching a service.
-- [ ] No SQL in either new service is built by string concatenation; all queries use bound, numbered placeholders.
-- [ ] `npm run test` passes with the full Vitest suite green (schemas, both services, all four route files, and every new/updated component), no skipped or hollow tests.
-- [ ] For every phase, the tests written for that phase were observed to fail (red) before the corresponding implementation existed.
+- [x] A teacher can create a question with a name, a question prompt, and 2–6 choices with exactly one marked correct, and it appears in the `/mcq` list.
+- [x] Creating a question with fewer than 2 choices, more than 6, zero correct choices, or more than one correct choice is rejected with a clear error before it reaches the database.
+- [x] A teacher can edit an existing question's name, question text, and choice set (including changing which choice is correct), and the changes are reflected in the list and on reload.
+- [x] A teacher can delete a question (after confirming), and it disappears from the list along with its choices and any attempts (cascade).
+- [x] The Actions dropdown on each row offers exactly Edit, Preview, and Delete, opened via a vertical-ellipsis icon button.
+- [x] Preview renders the question and choices without indicating which is correct, lets the previewer pick one and submit, and then clearly shows whether the pick was correct.
+- [x] Submitting a preview answer creates a row in `mcq_attempts` with the correct `mcq_id`, `choice_id`, `attempted_by`, and `is_correct`.
+- [x] `created_by` on a newly created question matches the id of whoever is currently logged in (per `client-identity`), and is empty/blocked with a clear message if no one is logged in.
+- [x] Every route handler validates its input with a Zod schema before touching a service.
+- [x] No SQL in either new service is built by string concatenation; all queries use bound, numbered placeholders.
+- [x] `npm run test` passes with the full Vitest suite green (schemas, both services, all four route files, and every new/updated component), no skipped or hollow tests.
+- [x] For every phase, the tests written for that phase were observed to fail (red) before the corresponding implementation existed.
 
 ---
 
@@ -688,8 +700,9 @@ export function clearCurrentUser(): void {
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phases 1–8 - COMPLETED. Phase 9 - PLANNED.
-**Status**: IN PROGRESS.
-**D1 database**: `quiz-maker-db` (existing binding `DB`). Migration `0002_create_mcq_tables.sql` applied to the **local** instance only; remote is untouched.
+**Current Phase**: Phases 1–9 - COMPLETED.
+**Status**: DONE.
+**D1 database**: `quiz-maker-db` (existing binding `DB`). Migration `0002_create_mcq_tables.sql` applied to both the local instance and, as of Phase 9 verification, the remote instance (via `wrangler d1 migrations apply quiz-maker-db --remote`, with explicit user approval).
 **Test suite**: 170/170 passing across 23 files. `npm run lint` clean. `npm run build` compiles and typechecks cleanly.
-**Next Steps**: Phase 9 — manual verification: full `npm run preview` walkthrough of create → list → edit → preview → delete against real local D1.
+**Manual verification**: User confirmed the full create → list → edit → preview → delete loop, plus choice validation, against the deployed Cloudflare Worker.
+**Next Steps**: None — all planned phases complete. Any further work (e.g. real sessions, grading, analytics) is out of this PRD's scope; see Scope > Cut.
