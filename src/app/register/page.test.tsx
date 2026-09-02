@@ -7,6 +7,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
+const { mockSaveCurrentUser } = vi.hoisted(() => ({
+  mockSaveCurrentUser: vi.fn(),
+}));
+vi.mock("@/lib/client-identity", () => ({
+  saveCurrentUser: mockSaveCurrentUser,
+}));
+
 import RegisterPage from "@/app/register/page";
 
 const PLAINTEXT_PASSWORD = "CorrectHorseBatteryStaple1";
@@ -90,5 +97,43 @@ describe("RegisterPage", () => {
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/mcq"));
+  });
+
+  it("saves the returned user to client identity before redirecting", async () => {
+    const returnedUser = {
+      id: "user-1",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      username: "alovelace",
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ user: returnedUser }), { status: 201 })
+    );
+    const user = userEvent.setup();
+    render(<RegisterPage />);
+
+    await fillValidForm(user);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() =>
+      expect(mockSaveCurrentUser).toHaveBeenCalledWith(returnedUser)
+    );
+  });
+
+  it("does not save a user to client identity on a failed registration", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: "Username or email is already taken" }),
+        { status: 409 }
+      )
+    );
+    const user = userEvent.setup();
+    render(<RegisterPage />);
+
+    await fillValidForm(user);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    expect(await screen.findByText(/already taken/i)).toBeTruthy();
+    expect(mockSaveCurrentUser).not.toHaveBeenCalled();
   });
 });

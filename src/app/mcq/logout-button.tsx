@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { clearCurrentUser } from "@/lib/client-identity";
 
 export function LogoutButton() {
   const router = useRouter();
@@ -14,6 +15,7 @@ export function LogoutButton() {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
+      clearCurrentUser();
       router.push("/login");
     }
   }

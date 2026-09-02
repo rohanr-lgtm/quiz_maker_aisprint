@@ -7,6 +7,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
+const { mockSaveCurrentUser } = vi.hoisted(() => ({
+  mockSaveCurrentUser: vi.fn(),
+}));
+vi.mock("@/lib/client-identity", () => ({
+  saveCurrentUser: mockSaveCurrentUser,
+}));
+
 import LoginPage from "@/app/login/page";
 
 const PLAINTEXT_PASSWORD = "CorrectHorseBatteryStaple1";
@@ -85,5 +92,47 @@ describe("LoginPage", () => {
     await user.click(screen.getByRole("button", { name: /^login$/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/mcq"));
+  });
+
+  it("saves the returned user to client identity before redirecting", async () => {
+    const returnedUser = {
+      id: "user-1",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      username: "alovelace",
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ user: returnedUser }), { status: 200 })
+    );
+    const user = userEvent.setup();
+    render(<LoginPage />);
+
+    await user.type(screen.getByLabelText(/username or email/i), "alovelace");
+    await user.type(screen.getByLabelText("Password"), PLAINTEXT_PASSWORD);
+    await user.click(screen.getByRole("button", { name: /^login$/i }));
+
+    await waitFor(() =>
+      expect(mockSaveCurrentUser).toHaveBeenCalledWith(returnedUser)
+    );
+  });
+
+  it("does not save a user to client identity on a failed login", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: "Invalid username/email or password" }),
+        { status: 401 }
+      )
+    );
+    const user = userEvent.setup();
+    render(<LoginPage />);
+
+    await user.type(screen.getByLabelText(/username or email/i), "alovelace");
+    await user.type(screen.getByLabelText("Password"), "wrong-password");
+    await user.click(screen.getByRole("button", { name: /^login$/i }));
+
+    expect(
+      await screen.findByText(/invalid username\/email or password/i)
+    ).toBeTruthy();
+    expect(mockSaveCurrentUser).not.toHaveBeenCalled();
   });
 });

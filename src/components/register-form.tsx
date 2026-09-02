@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { hashPasswordForTransit } from "@/lib/crypto/client-hash";
+import { saveCurrentUser, type CurrentUser } from "@/lib/client-identity";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const GENERIC_ERROR = "Something went wrong. Please try again.";
@@ -100,12 +101,17 @@ export function RegisterForm({ ...props }: React.ComponentProps<typeof Card>) {
         }),
       });
 
+      const data = (await response.json().catch(() => null)) as
+        | { user?: CurrentUser; error?: string }
+        | null;
+
       if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
         setFormError(data?.error ?? GENERIC_ERROR);
         return;
+      }
+
+      if (data?.user) {
+        saveCurrentUser(data.user);
       }
 
       router.push("/mcq");

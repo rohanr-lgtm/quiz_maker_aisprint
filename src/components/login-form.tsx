@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { hashPasswordForTransit } from "@/lib/crypto/client-hash";
+import { saveCurrentUser, type CurrentUser } from "@/lib/client-identity";
 
 const GENERIC_ERROR = "Invalid username/email or password";
 
@@ -83,6 +84,13 @@ export function LoginForm({
       if (!response.ok) {
         setFormError(GENERIC_ERROR);
         return;
+      }
+
+      const data = (await response.json().catch(() => null)) as
+        | { user?: CurrentUser }
+        | null;
+      if (data?.user) {
+        saveCurrentUser(data.user);
       }
 
       router.push("/mcq");

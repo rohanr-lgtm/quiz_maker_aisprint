@@ -7,6 +7,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
+const { mockClearCurrentUser } = vi.hoisted(() => ({
+  mockClearCurrentUser: vi.fn(),
+}));
+vi.mock("@/lib/client-identity", () => ({
+  clearCurrentUser: mockClearCurrentUser,
+}));
+
 import McqPage from "@/app/mcq/page";
 
 beforeEach(() => {
@@ -39,6 +46,7 @@ describe("McqPage", () => {
       "/api/auth/logout",
       expect.objectContaining({ method: "POST" })
     );
+    expect(mockClearCurrentUser).toHaveBeenCalled();
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
   });
 });
