@@ -94,7 +94,16 @@ describe("GET /api/mcqs/[id]", () => {
 
 describe("PUT /api/mcqs/[id]", () => {
   it("returns 200 with the updated question on a valid body", async () => {
-    const updatedMcq = { ...existingMcq, ...validUpdateBody };
+    const updatedMcq = {
+      ...existingMcq,
+      name: validUpdateBody.name,
+      question: validUpdateBody.question,
+      choices: validUpdateBody.choices.map((choice, index) => ({
+        id: `choice-${index}`,
+        ...choice,
+        position: index,
+      })),
+    };
     vi.mocked(updateMcq).mockResolvedValueOnce(updatedMcq);
 
     const response = await PUT(makeRequest("PUT", validUpdateBody), makeParams());

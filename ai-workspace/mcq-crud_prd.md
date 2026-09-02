@@ -367,7 +367,7 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 - Next.js 16 route handlers receive dynamic segments as `{ params: Promise<{ id: string }> }`, not a plain object — every handler in `[id]/route.ts` and `[id]/attempts/route.ts` starts with `const { id } = await params;`.
 - `POST /api/mcqs/[id]/attempts` calls `mcq-service.getMcqById(id)` before `attempt-service.createAttempt(id, ...)` specifically to produce the documented `404 Question not found` case. Without this check, an attempt against a nonexistent `mcqId` would instead surface as a `400` from `attempt-service`'s `ChoiceNotFoundError` (since `WHERE id = ?1 AND mcq_id = ?2` also fails to match when `?2` doesn't exist), which doesn't match the API contract's distinct 400 vs. 404 cases.
 
-### Phase 5: shadcn Components - PLANNED
+### Phase 5: shadcn Components - COMPLETED
 
 **Objective**: Add the UI primitives this feature needs that aren't installed yet.
 
@@ -380,7 +380,12 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 
 **Deliverables**:
 
-- `src/components/ui/dropdown-menu.tsx`, `alert-dialog.tsx`, `textarea.tsx`, `radio-group.tsx`.
+- `src/components/ui/dropdown-menu.tsx`, `alert-dialog.tsx`, `textarea.tsx`, `radio-group.tsx` — done, all built on `@base-ui/react` (Menu/AlertDialog primitives) consistent with the project's existing Base UI components (`dialog.tsx`, `button.tsx`, etc.), no new npm dependency added (`@base-ui/react` was already a transitive install from the initial `base-nova` setup).
+
+**Implementation notes**:
+
+- The CLI reported `Skipped 1 file: button.tsx` — expected and harmless; `alert-dialog.tsx`'s generator re-emits a copy of the current `button.tsx` template to guarantee its `AlertDialogAction`/`AlertDialogCancel` composition works, and shadcn skips the write when the content is already identical to what's on disk.
+- Running `npx tsc --noEmit` directly (not just relying on `npm run build`'s bundled TypeScript pass) surfaced a real, pre-existing type error in `src/app/api/mcqs/[id]/route.test.ts` from Phase 4: `{ ...existingMcq, ...validUpdateBody }` produced a `choices: { text, isCorrect }[]` that doesn't satisfy `Choice[]` (missing `id`/`position`). `npm run build`'s incremental TypeScript check (via `.next/cache/.tsbuildinfo`) did not catch this the first time Phase 4 was verified — worth remembering that `npm run build`'s typecheck is not a substitute for an occasional clean `npx tsc --noEmit` when verifying a phase. Fixed by mapping `validUpdateBody.choices` into full `Choice` shapes (`id`, `position`) before merging, matching the same pattern already used for `createdMcq` in `mcqs/route.test.ts`. No behavioral change — this only affected the mock's static type, not any assertion — confirmed via `npm run test` (152/152 still green) after the fix.
 
 ### Phase 6: MCQ List Page - PLANNED
 
@@ -625,8 +630,8 @@ export function clearCurrentUser(): void {
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phases 1–4 - COMPLETED. Phases 5–9 - PLANNED.
+**Current Phase**: Phases 1–5 - COMPLETED. Phases 6–9 - PLANNED.
 **Status**: IN PROGRESS.
 **D1 database**: `quiz-maker-db` (existing binding `DB`). Migration `0002_create_mcq_tables.sql` applied to the **local** instance only; remote is untouched.
-**Test suite**: 152/152 passing across 20 files. `npm run lint` clean. `npm run build` compiles and typechecks cleanly (see Troubleshooting Guide for an unrelated Windows exit-crash).
-**Next Steps**: Phase 5 — add the `dropdown-menu`, `alert-dialog`, `textarea`, and `radio-group` shadcn/ui components needed by the list, form, and preview pages in Phases 6–8.
+**Test suite**: 152/152 passing across 20 files. `npm run lint` and `npx tsc --noEmit` both clean.
+**Next Steps**: Phase 6 — rebuild `/mcq` as a real list page with a shadcn `Table` and a row-actions `DropdownMenu`/`AlertDialog`, using the components added in Phase 5.
