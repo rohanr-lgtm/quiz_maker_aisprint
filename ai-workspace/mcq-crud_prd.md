@@ -459,7 +459,7 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 
 **Code Reference**: `src/components/mcq-form.tsx`
 
-### Phase 8: Preview / Self-Test Page - PLANNED
+### Phase 8: Preview / Self-Test Page - COMPLETED
 
 **Objective**: Let a teacher confirm a question behaves as intended and start generating real attempt data.
 
@@ -474,9 +474,23 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 - Red: fails on missing component/page.
 - Green: every case above passes.
 
+**Red (confirmed)**: `npm run test -- mcq-preview` failed to resolve `@/components/mcq-preview` (module didn't exist) — 0 tests collected, the right reason.
+
+**Green (confirmed)**: `npm run test -- mcq-preview` passed 5/5. Full suite (`npm run test`) passed 170/170 across 23 files. `npm run lint` clean. `npm run build` compiled successfully (exit 0); the route table shows `/mcq/[id]/preview` as dynamic, as expected for a Server Component that fetches by `id`.
+
 **Deliverables**:
 
-- `src/components/mcq-preview.tsx` + `.test.tsx`, `src/app/mcq/[id]/preview/page.tsx`.
+- `src/components/mcq-preview.tsx` + `.test.tsx` — done.
+- `src/app/mcq/[id]/preview/page.tsx` — done.
+
+**Implementation notes**:
+
+- `McqPreview` already receives the full `Choice[]` (including each choice's `isCorrect`) from `getMcqById()` via its Server Component wrapper — the same payload shape the edit page uses — so the correct choice's text for the "Incorrect" message is derived client-side from the already-fetched list rather than requiring the attempts API response to echo it back. The API response is only consulted for `isCorrect` on the submitted attempt itself.
+- The radio group is disabled once a result exists, and the "Submit Answer" button is unmounted rather than merely disabled after a result is shown — matching the PRD's one-shot "submit then reveal" flow with no resubmission path (retrying means navigating back to preview via "Back to Questions" or reloading).
+- Reuses the same `getCurrentUser()`-missing guard pattern as `McqForm` (inline `FieldError` with "Please log in again.", no `fetch` call made) rather than inventing a second convention.
+- Per this PRD's Testing Strategy, `/mcq/[id]/preview/page.tsx` has no test file of its own: it is a data-fetching Server Component whose only logic (`getMcqById` + the not-found branch) is already covered by `mcq-service.test.ts`; the `McqPreview` it renders is tested in isolation.
+
+**Code Reference**: `src/components/mcq-preview.tsx`, `src/app/mcq/[id]/preview/page.tsx`
 
 ### Phase 9: Manual Verification - PLANNED
 
@@ -674,8 +688,8 @@ export function clearCurrentUser(): void {
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phases 1–7 - COMPLETED. Phases 8–9 - PLANNED.
+**Current Phase**: Phases 1–8 - COMPLETED. Phase 9 - PLANNED.
 **Status**: IN PROGRESS.
 **D1 database**: `quiz-maker-db` (existing binding `DB`). Migration `0002_create_mcq_tables.sql` applied to the **local** instance only; remote is untouched.
-**Test suite**: 165/165 passing across 22 files. `npm run lint` and `npx tsc --noEmit` both clean. `npm run build` compiles and typechecks cleanly.
-**Next Steps**: Phase 8 — the `McqPreview` client component and its `/mcq/[id]/preview` page, wiring up the self-test/attempt-recording flow.
+**Test suite**: 170/170 passing across 23 files. `npm run lint` clean. `npm run build` compiles and typechecks cleanly.
+**Next Steps**: Phase 9 — manual verification: full `npm run preview` walkthrough of create → list → edit → preview → delete against real local D1.
