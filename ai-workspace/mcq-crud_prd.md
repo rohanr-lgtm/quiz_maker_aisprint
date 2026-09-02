@@ -295,7 +295,7 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 - `register-form.tsx` and `login-form.tsx` both now read the `user` object out of the success response body (previously discarded entirely) and pass it straight to `saveCurrentUser` before navigating — no new fetch call, just using data that was already being returned.
 - Test mocks for `@/lib/client-identity` use `vi.hoisted()`, not a bare top-level `const mockFn = vi.fn()`. Vitest (unlike Jest) has no "name starts with `mock`" exemption from its hoisting rules — a factory that evaluates a mock reference immediately (e.g. `() => ({ saveCurrentUser: mockSaveCurrentUser })`) throws `ReferenceError: Cannot access '...' before initialization` unless that reference was itself declared via `vi.hoisted`. The pre-existing `pushMock` pattern in these same files only worked because it's read inside a deferred inner closure (`useRouter: () => ({ push: pushMock })`), not evaluated at factory-call time.
 
-### Phase 3: MCQ and Attempt Service Layers - PLANNED
+### Phase 3: MCQ and Attempt Service Layers - COMPLETED
 
 **Objective**: Centralize all `mcqs`/`mcq_choices`/`mcq_attempts` data access, matching `user-service.ts`'s existing pattern.
 
@@ -320,12 +320,24 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 - Red: fails on missing modules.
 - Green: implemented to satisfy every case, including the negative/error paths.
 
+**Red (confirmed)**: `npm run test -- schemas/mcq schemas/attempt` failed to resolve `@/lib/schemas/mcq` and `@/lib/schemas/attempt` (neither existed). After adding those, `npm run test -- services/mcq-service services/attempt-service` failed to resolve `@/lib/services/mcq-service` and `@/lib/services/attempt-service` — the right reason in both cases, since none of the four modules existed yet.
+
+**Green (confirmed)**: Schemas: 16/16 passing. Services: 17/17 passing (after one self-correction — see Implementation notes below). Full suite (`npm run test`): 129/129 across 17 files. `npm run lint` and `npx tsc --noEmit` both clean.
+
 **Deliverables**:
 
-- `src/lib/schemas/mcq.ts` + `.test.ts`, `src/lib/schemas/attempt.ts` + `.test.ts`
-- `src/lib/services/mcq-service.ts` + `.test.ts`, `src/lib/services/attempt-service.ts` + `.test.ts`
+- `src/lib/schemas/mcq.ts` + `.test.ts`, `src/lib/schemas/attempt.ts` + `.test.ts` — done.
+- `src/lib/services/mcq-service.ts` + `.test.ts`, `src/lib/services/attempt-service.ts` + `.test.ts` — done.
 
-### Phase 4: API Endpoints - PLANNED
+**Implementation notes**:
+
+- `createMcq`/`updateMcq` insert/replace the question and its full choice set in a single `env.DB.batch([...])` call — one atomic round trip covering the `mcqs` row and every `mcq_choices` row, each using `INSERT ... RETURNING`/`UPDATE ... RETURNING` so the assembled response comes straight from what the database actually stored, with no second `SELECT` needed. `updateMcq`'s batch runs `UPDATE mcqs`, then `DELETE FROM mcq_choices WHERE mcq_id = ?1`, then one `INSERT ... RETURNING` per new choice, in that order — D1 batch statements execute sequentially within an implicit transaction, so the delete is guaranteed to complete before the inserts run.
+- IDs for new `mcqs`/`mcq_choices`/`mcq_attempts` rows are generated in application code with `crypto.randomUUID()` rather than relying on each table's SQL `DEFAULT` — this is what makes the single-batch insert-with-`RETURNING` pattern possible (the choice rows' foreign key to the question is known before any statement runs), and `crypto.randomUUID()` is available in both the browser and the Workers runtime with no new dependency.
+- `validateChoices()` in `mcq-service.ts` re-checks the 2–6-choices/exactly-one-correct/non-empty-text rules that `CreateMcqInputSchema`/`UpdateMcqInputSchema` already enforce, and throws before any `env.DB` call — defense-in-depth per the PRD's Important Notes, in case a future caller reaches the service without going through the Zod schema first.
+- First test run of `listMcqs` failed with `env.DB.prepare(...).all is not a function` — the mock's `prepare()` only returned `{ bind }`, but `listMcqs`'s query has no placeholders and calls `.all()` directly on the prepared statement (a real D1 `PreparedStatement` supports both `.all()` and `.bind(...).all()`). Fixed by having the test's `mockPrepare` return both `bind` and `all`, matching the real API surface rather than narrowing the mock to only the shape earlier tests happened to use.
+- `npm run lint` and `npx tsc --noEmit` are both clean (zero errors, zero warnings) as of this phase.
+
+### Phase 4: API Endpoints - COMPLETED
 
 **Objective**: Expose the service layer over HTTP for the client components built in later phases.
 
@@ -341,9 +353,19 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 - Red: fails on missing route files.
 - Green: every documented status code in [API Endpoints](#api-endpoints) is covered and passes.
 
+**Red (confirmed)**: `npm run test -- api/mcqs` failed to resolve `@/app/api/mcqs/[id]/route` and `@/app/api/mcqs/[id]/attempts/route` (neither file existed yet — the flat `src/app/api/mcqs/route.ts` had already been created together with its test, so that suite passed while the two dynamic-segment suites failed for the right reason: 0 tests collected, import resolution errors).
+
+**Green (confirmed)**: After adding the two remaining route files, `npm run test -- api/mcqs` passed 23/23 across 3 files. Full suite (`npm run test`) passed 152/152 across 20 files. `npm run lint` clean. `npm run build` compiled successfully, passed `Running TypeScript` with no errors, and generated all three new routes as dynamic (`ƒ`) endpoints — `/api/mcqs`, `/api/mcqs/[id]`, `/api/mcqs/[id]/attempts` — alongside the existing `/api/auth/*` routes; the build process itself then crashed on exit with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c` (a Windows-specific Turbopack/libuv teardown bug, reproduced identically on two consecutive runs regardless of code changes — see Troubleshooting Guide).
+
 **Deliverables**:
 
-- Three route files + their `route.test.ts` files under `src/app/api/mcqs/`.
+- `src/app/api/mcqs/route.ts` + `.test.ts`, `src/app/api/mcqs/[id]/route.ts` + `.test.ts`, `src/app/api/mcqs/[id]/attempts/route.ts` + `.test.ts` — done.
+
+**Implementation notes**:
+
+- All three route files follow the existing `api/auth/*/route.ts` shape exactly: `await request.json()` wrapped in try/catch → `400` on unparseable body; Zod `safeParse` → `400` with `issues[0]?.message` on validation failure; service call wrapped in try/catch mapping known error classes to their documented status codes, with a generic `500` message (never the raw `Error#message`) as the fallback.
+- Next.js 16 route handlers receive dynamic segments as `{ params: Promise<{ id: string }> }`, not a plain object — every handler in `[id]/route.ts` and `[id]/attempts/route.ts` starts with `const { id } = await params;`.
+- `POST /api/mcqs/[id]/attempts` calls `mcq-service.getMcqById(id)` before `attempt-service.createAttempt(id, ...)` specifically to produce the documented `404 Question not found` case. Without this check, an attempt against a nonexistent `mcqId` would instead surface as a `400` from `attempt-service`'s `ChoiceNotFoundError` (since `WHERE id = ?1 AND mcq_id = ?2` also fails to match when `?2` doesn't exist), which doesn't match the API contract's distinct 400 vs. 404 cases.
 
 ### Phase 5: shadcn Components - PLANNED
 
@@ -577,6 +599,13 @@ export function clearCurrentUser(): void {
 **Solution**: Declared the mock functions with `vi.hoisted()` instead of a bare top-level `const`, e.g. `const { mockSaveCurrentUser } = vi.hoisted(() => ({ mockSaveCurrentUser: vi.fn() }));`, so the declaration itself is hoisted alongside the `vi.mock` call and is already initialized by the time the factory runs.
 **Code Reference**: `src/app/register/page.test.tsx`, `src/app/login/page.test.tsx`, `src/app/mcq/page.test.tsx`
 
+### `npm run build` crashes on exit with a libuv assertion (Windows)
+
+**Problem**: `npm run build` compiles successfully, passes `Running TypeScript` with zero errors, and prints the full route manifest (including all three new `/api/mcqs*` routes as dynamic) — but the process then exits with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94` and a non-zero exit code, after all meaningful build output has already been printed.
+**Cause**: A Windows-specific libuv/Turbopack process-teardown bug — reproduced identically across two consecutive `npm run build` runs with no code changes in between, and occurs strictly after "Finalizing page optimization" completes and the route table is printed. Not related to this phase's code; the build artifact itself (route manifest, TypeScript check) is correct before the crash.
+**Solution**: None applied — documenting rather than working around, since the build output before the crash is complete and correct, and this project's working agreement is to run `npm run preview` (the real Workers runtime) for anything runtime-sensitive rather than relying on `next build`'s exit code alone. If this crash blocks a real deploy pipeline in the future, revisit with an updated Next.js/Turbopack version.
+**Code Reference**: N/A — environment/tooling issue, not a code change.
+
 ---
 
 ## Notes for AI Agents
@@ -596,8 +625,8 @@ export function clearCurrentUser(): void {
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phases 1–2 - COMPLETED. Phases 3–9 - PLANNED.
+**Current Phase**: Phases 1–4 - COMPLETED. Phases 5–9 - PLANNED.
 **Status**: IN PROGRESS.
 **D1 database**: `quiz-maker-db` (existing binding `DB`). Migration `0002_create_mcq_tables.sql` applied to the **local** instance only; remote is untouched.
-**Test suite**: 96/96 passing across 13 files. `npm run lint` and `npx tsc --noEmit` both clean.
-**Next Steps**: Phase 3 — `mcq-service.ts` and `attempt-service.ts`, the data-access layer the API routes and pages will build on.
+**Test suite**: 152/152 passing across 20 files. `npm run lint` clean. `npm run build` compiles and typechecks cleanly (see Troubleshooting Guide for an unrelated Windows exit-crash).
+**Next Steps**: Phase 5 — add the `dropdown-menu`, `alert-dialog`, `textarea`, and `radio-group` shadcn/ui components needed by the list, form, and preview pages in Phases 6–8.
