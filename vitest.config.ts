@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    setupFiles: ["./vitest.setup.ts"],
     // Node 24+ ships a native `localStorage` global that shadows jsdom's
     // own Storage implementation, leaving `window.localStorage` undefined
     // under jsdom (see https://github.com/nodejs/node/issues/60303). This

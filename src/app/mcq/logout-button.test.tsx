@@ -14,7 +14,7 @@ vi.mock("@/lib/client-identity", () => ({
   clearCurrentUser: mockClearCurrentUser,
 }));
 
-import McqPage from "@/app/mcq/page";
+import { LogoutButton } from "@/app/mcq/logout-button";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -30,15 +30,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("McqPage", () => {
-  it("renders stub content", () => {
-    render(<McqPage />);
-    expect(screen.getByText(/coming soon/i)).toBeTruthy();
-  });
-
+describe("LogoutButton", () => {
   it("clicking Logout calls the logout endpoint and navigates to /login", async () => {
     const user = userEvent.setup();
-    render(<McqPage />);
+    render(<LogoutButton />);
 
     await user.click(screen.getByRole("button", { name: /logout/i }));
 

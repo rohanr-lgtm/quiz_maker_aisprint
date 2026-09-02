@@ -387,7 +387,7 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 - The CLI reported `Skipped 1 file: button.tsx` — expected and harmless; `alert-dialog.tsx`'s generator re-emits a copy of the current `button.tsx` template to guarantee its `AlertDialogAction`/`AlertDialogCancel` composition works, and shadcn skips the write when the content is already identical to what's on disk.
 - Running `npx tsc --noEmit` directly (not just relying on `npm run build`'s bundled TypeScript pass) surfaced a real, pre-existing type error in `src/app/api/mcqs/[id]/route.test.ts` from Phase 4: `{ ...existingMcq, ...validUpdateBody }` produced a `choices: { text, isCorrect }[]` that doesn't satisfy `Choice[]` (missing `id`/`position`). `npm run build`'s incremental TypeScript check (via `.next/cache/.tsbuildinfo`) did not catch this the first time Phase 4 was verified — worth remembering that `npm run build`'s typecheck is not a substitute for an occasional clean `npx tsc --noEmit` when verifying a phase. Fixed by mapping `validUpdateBody.choices` into full `Choice` shapes (`id`, `position`) before merging, matching the same pattern already used for `createdMcq` in `mcqs/route.test.ts`. No behavioral change — this only affected the mock's static type, not any assertion — confirmed via `npm run test` (152/152 still green) after the fix.
 
-### Phase 6: MCQ List Page - PLANNED
+### Phase 6: MCQ List Page - COMPLETED
 
 **Objective**: Replace the `/mcq` placeholder with a real, working question list.
 
@@ -402,9 +402,26 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 - Red: fails on missing component.
 - Green: implemented to satisfy each interaction.
 
+**Red (confirmed)**: `npm run test -- mcq-row-actions` failed to resolve `@/app/mcq/mcq-row-actions` (module didn't exist) — the right reason, before any implementation existed.
+
+**Green (confirmed, after two infra fixes — see Implementation notes and Troubleshooting Guide)**: `npm run test -- mcq-row-actions` passed 6/6. Full suite (`npm run test`) passed 157/157 across 21 files. `npm run lint` and `npx tsc --noEmit` both clean. `npm run build` compiled successfully with no crash this run (see Phase 4's Troubleshooting entry — the earlier libuv exit crash is intermittent, not deterministic); the route table shows `/mcq` as a static (`○`) route despite calling `listMcqs()` at build time, meaning it was successfully prerendered against the local D1 binding during `next build`.
+
 **Deliverables**:
 
-- `src/app/mcq/page.tsx` (rewritten), `src/app/mcq/mcq-row-actions.tsx` + `.test.tsx`.
+- `src/app/mcq/page.tsx` (rewritten as an async Server Component) — done.
+- `src/app/mcq/mcq-row-actions.tsx` + `.test.tsx` — done.
+- `src/app/mcq/logout-button.test.tsx` — done (see Implementation notes: relocated, not new, coverage).
+- `src/app/mcq/page.test.tsx` — deleted (see Implementation notes).
+- `vitest.setup.ts` (new) + `vitest.config.ts` (`test.setupFiles`) — done (see Troubleshooting Guide).
+
+**Implementation notes**:
+
+- `page.tsx` is now `export default async function McqPage()`, calling `await listMcqs()` directly (Server Component data fetching, per `.cursor/rules/nextjs.mdc` — no self-call to its own `/api/mcqs`). Per this PRD's Testing Strategy ("Server Components ... are not rendered directly"), it has no `page.test.tsx` of its own — an async Server Component can't be passed to RTL's `render()` without awaiting it manually and bypassing Next's actual rendering pipeline, which this project's convention avoids. Its behavior is covered by `mcq-service.test.ts` (data) and `mcq-row-actions.test.tsx`/`logout-button.test.tsx` (the two client islands it renders).
+- The pre-existing `src/app/mcq/page.test.tsx` tested the old synchronous stub `McqPage` directly, including its Logout button interaction. Since `McqPage` is now async, that direct-render approach no longer applies. The Logout test case was **relocated** (not newly written) to a new `logout-button.test.tsx` that renders `<LogoutButton />` in isolation — same assertions, same mocks, just a new home now that the component it tests is no longer wrapped by a directly-testable page.
+- `McqRowActions` controls its `AlertDialog`'s `open` state externally (`useState` + `open`/`onOpenChange`) rather than nesting an `AlertDialogTrigger` inside the `DropdownMenuItem`. This sidesteps a portal/unmount race: the dropdown menu closes (and unmounts its content) as soon as an item is clicked, which would tear down a nested trigger before it could hand off to the alert dialog. An external boolean survives that unmount cleanly.
+- Composing shadcn's Base UI primitives with `next/link`'s `Link` uses the `render` prop (Base UI's polymorphic composition mechanism, not Radix's `asChild`): `<DropdownMenuItem render={<Link href={...} />}>Edit</DropdownMenuItem>` and `<Button render={<Link href="/mcq/new" />}>Create Question</Button>`. Confirmed via `BaseUIComponentProps` in `node_modules/@base-ui/react/internals/types.d.ts` that every Base UI primitive in this project (`Button`, `MenuItem`, `MenuTrigger`, etc.) supports `render` uniformly.
+
+**Code Reference**: `src/app/mcq/mcq-row-actions.tsx`, `src/app/mcq/page.tsx`
 
 ### Phase 7: Create / Edit Page - PLANNED
 
@@ -604,11 +621,22 @@ export function clearCurrentUser(): void {
 **Solution**: Declared the mock functions with `vi.hoisted()` instead of a bare top-level `const`, e.g. `const { mockSaveCurrentUser } = vi.hoisted(() => ({ mockSaveCurrentUser: vi.fn() }));`, so the declaration itself is hoisted alongside the `vi.mock` call and is already initialized by the time the factory runs.
 **Code Reference**: `src/app/register/page.test.tsx`, `src/app/login/page.test.tsx`, `src/app/mcq/page.test.tsx`
 
+### Base UI popups (`DropdownMenu`, `AlertDialog`, `Dialog`) never open under jsdom
+
+**Problem**: The first `mcq-row-actions.test.tsx` run failed all 6 tests — clicking the trigger button never flipped `aria-expanded` to `"true"` and no menu content ever appeared in the DOM, with no thrown error printed anywhere.
+**Cause**: Two independent issues, both environment-level, not component bugs:
+  1. jsdom does not implement `ResizeObserver` at all (`typeof window.ResizeObserver === "undefined"`, confirmed via a standalone `node -e` probe), which Base UI's floating-element positioning depends on.
+  2. Base UI's `useClick` interaction (`floating-ui-react/hooks/useClick.js`) opens the menu from `onMouseDown`, but wraps the actual `store.setOpen(...)` call in `frame.request(() => ...)` — a `requestAnimationFrame` callback — "to avoid `:focus-visible` from appearing when using a pointer" (per its own comment). That callback fires on jsdom's real (timer-based) rAF polyfill, but strictly *after* `userEvent.click()`'s returned promise has already resolved. A test that asserts immediately after `await user.click(...)` runs one tick too early.
+**Solution**:
+  1. Added `vitest.setup.ts` with a minimal `ResizeObserver` stub (`observe`/`unobserve`/`disconnect` as no-ops), registered via `vitest.config.ts`'s new `test.setupFiles`. This is a project-wide fix — every future test that opens any Base UI popup (`Dialog`, `AlertDialog`, `DropdownMenu`, etc.) needs this and now gets it automatically.
+  2. Changed every "is the menu/dialog open yet" assertion to use `findByRole`/`findByText` (which poll via `waitFor` under the hood) instead of `getByRole`/`getByText` immediately after a click. This isn't a workaround for a test-only quirk — it reflects the component's real, one-frame-delayed opening behavior, so `findBy*` is the *correct* way to assert it, in tests and not just as a jsdom accommodation.
+**Code Reference**: `vitest.setup.ts`, `vitest.config.ts` (`test.setupFiles`), `src/app/mcq/mcq-row-actions.test.tsx` (`openMenu()` helper)
+
 ### `npm run build` crashes on exit with a libuv assertion (Windows)
 
 **Problem**: `npm run build` compiles successfully, passes `Running TypeScript` with zero errors, and prints the full route manifest (including all three new `/api/mcqs*` routes as dynamic) — but the process then exits with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94` and a non-zero exit code, after all meaningful build output has already been printed.
-**Cause**: A Windows-specific libuv/Turbopack process-teardown bug — reproduced identically across two consecutive `npm run build` runs with no code changes in between, and occurs strictly after "Finalizing page optimization" completes and the route table is printed. Not related to this phase's code; the build artifact itself (route manifest, TypeScript check) is correct before the crash.
-**Solution**: None applied — documenting rather than working around, since the build output before the crash is complete and correct, and this project's working agreement is to run `npm run preview` (the real Workers runtime) for anything runtime-sensitive rather than relying on `next build`'s exit code alone. If this crash blocks a real deploy pipeline in the future, revisit with an updated Next.js/Turbopack version.
+**Cause**: A Windows-specific libuv/Turbopack process-teardown bug — reproduced identically across two consecutive `npm run build` runs during Phase 4 with no code changes in between, occurring strictly after "Finalizing page optimization" completes and the route table is printed. **Update (Phase 6)**: a later `npm run build` run (also on Windows, no code path related to the crash changed) exited `0` with no crash at all, confirming this is intermittent rather than deterministic — likely a timing-dependent teardown race, not something tied to any particular code change. Not related to this phase's code; the build artifact itself (route manifest, TypeScript check) is correct before the crash whenever it does occur.
+**Solution**: None applied — documenting rather than working around, since the build output before the crash is complete and correct, and this project's working agreement is to run `npm run preview` (the real Workers runtime) for anything runtime-sensitive rather than relying on `next build`'s exit code alone. Treat a non-zero exit here as inconclusive on its own — check whether the route manifest and "Finished TypeScript" both printed successfully before treating the build as failed. If this crash blocks a real deploy pipeline in the future, revisit with an updated Next.js/Turbopack version.
 **Code Reference**: N/A — environment/tooling issue, not a code change.
 
 ---
@@ -630,8 +658,8 @@ export function clearCurrentUser(): void {
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phases 1–5 - COMPLETED. Phases 6–9 - PLANNED.
+**Current Phase**: Phases 1–6 - COMPLETED. Phases 7–9 - PLANNED.
 **Status**: IN PROGRESS.
 **D1 database**: `quiz-maker-db` (existing binding `DB`). Migration `0002_create_mcq_tables.sql` applied to the **local** instance only; remote is untouched.
-**Test suite**: 152/152 passing across 20 files. `npm run lint` and `npx tsc --noEmit` both clean.
-**Next Steps**: Phase 6 — rebuild `/mcq` as a real list page with a shadcn `Table` and a row-actions `DropdownMenu`/`AlertDialog`, using the components added in Phase 5.
+**Test suite**: 157/157 passing across 21 files. `npm run lint` and `npx tsc --noEmit` both clean. `npm run build` compiles and typechecks cleanly.
+**Next Steps**: Phase 7 — the shared `McqForm` client component and its `/mcq/new`/`/mcq/[id]/edit` page wrappers.
