@@ -423,7 +423,7 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 
 **Code Reference**: `src/app/mcq/mcq-row-actions.tsx`, `src/app/mcq/page.tsx`
 
-### Phase 7: Create / Edit Page - PLANNED
+### Phase 7: Create / Edit Page - COMPLETED
 
 **Objective**: Let a teacher actually author a question.
 
@@ -439,9 +439,25 @@ Same TDD discipline as `register-login-logout_prd.md`, per `.cursor/skills/testi
 - Red: fails on missing component/pages.
 - Green: every case above passes.
 
+**Red (confirmed)**: `npm run test -- mcq-form` failed to resolve `@/components/mcq-form` (module didn't exist) — 0 tests collected, the right reason.
+
+**Green (confirmed, after one test-only fix — see Implementation notes)**: `npm run test -- mcq-form` passed 8/8 (one more case than originally planned — added a dedicated edit-mode PUT assertion). Full suite (`npm run test`) passed 165/165 across 22 files. `npm run lint` and `npx tsc --noEmit` both clean. `npm run build` compiled successfully (exit 0); the route table shows `/mcq/new` as static and `/mcq/[id]/edit` as dynamic, as expected for a Server Component that fetches by `id`.
+
 **Deliverables**:
 
-- `src/components/mcq-form.tsx` + `.test.tsx`, `src/app/mcq/new/page.tsx`, `src/app/mcq/[id]/edit/page.tsx`.
+- `src/components/mcq-form.tsx` + `.test.tsx` — done.
+- `src/app/mcq/new/page.tsx` — done.
+- `src/app/mcq/[id]/edit/page.tsx` — done.
+
+**Implementation notes**:
+
+- `McqForm` is a single client component handling both modes via a `mode: "create" | "edit"` prop plus an optional `mcqId`/`initialValues`. Create mode seeds two empty choices and sends `createdBy` (from `getCurrentUser()`) in the `POST /api/mcqs` body; edit mode is pre-seeded from the fetched `Mcq` and sends `PUT /api/mcqs/[id]` with no `createdBy` (immutable after creation, per the API contract).
+- The radio group's value is the *array index* of the currently-correct choice (`String(index)`), not a stable id — choices in create mode have no id yet, and even in edit mode the PRD's Cut section already establishes that `PUT` replaces the whole choice set by position rather than diffing by id, so index-based selection is consistent with that model.
+- First test run failed 2 of 8 on `toBeDisabled()` with `Invalid Chai property: toBeDisabled` — this project has no `@testing-library/jest-dom` installed (confirmed via a repo-wide search: zero matches for `jest-dom` or `toBeDisabled` outside this new test file), and per `AGENTS.md` ("ask before adding a dependency") this wasn't added silently. Fixed by asserting the native `HTMLButtonElement.disabled` property directly (`expect((button as HTMLButtonElement).disabled).toBe(true)`) instead, which needs no extra matcher library.
+- `/mcq/[id]/edit/page.tsx` calls `notFound()` (from `next/navigation`) when `getMcqById` returns `undefined`, rather than rendering an inline error — consistent with Next.js App Router convention for a missing resource behind a dynamic segment.
+- Per this PRD's Testing Strategy, neither `new/page.tsx` nor `[id]/edit/page.tsx` has its own test file: the former is a one-line wrapper with no logic, and the latter is a data-fetching Server Component whose only logic (`getMcqById` + the not-found branch) is already covered by `mcq-service.test.ts`; the `McqForm` it renders is tested in isolation.
+
+**Code Reference**: `src/components/mcq-form.tsx`
 
 ### Phase 8: Preview / Self-Test Page - PLANNED
 
@@ -658,8 +674,8 @@ export function clearCurrentUser(): void {
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phases 1–6 - COMPLETED. Phases 7–9 - PLANNED.
+**Current Phase**: Phases 1–7 - COMPLETED. Phases 8–9 - PLANNED.
 **Status**: IN PROGRESS.
 **D1 database**: `quiz-maker-db` (existing binding `DB`). Migration `0002_create_mcq_tables.sql` applied to the **local** instance only; remote is untouched.
-**Test suite**: 157/157 passing across 21 files. `npm run lint` and `npx tsc --noEmit` both clean. `npm run build` compiles and typechecks cleanly.
-**Next Steps**: Phase 7 — the shared `McqForm` client component and its `/mcq/new`/`/mcq/[id]/edit` page wrappers.
+**Test suite**: 165/165 passing across 22 files. `npm run lint` and `npx tsc --noEmit` both clean. `npm run build` compiles and typechecks cleanly.
+**Next Steps**: Phase 8 — the `McqPreview` client component and its `/mcq/[id]/preview` page, wiring up the self-test/attempt-recording flow.
