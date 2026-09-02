@@ -1,0 +1,35 @@
+---
+description: Require user approval before committing/pushing each PRD implementation phase
+alwaysApply: true
+---
+
+# Phase-by-Phase Approval and Git Workflow
+
+When implementing a technical PRD's Implementation Phases (see `ai-workspace/*_prd.md`),
+each phase is its own change. Do not chain multiple phases together without the user
+approving in between.
+
+## After finishing a phase's implementation
+
+1. Get that phase green: its tests pass (red → green already confirmed), plus
+   `npm run lint` and, where relevant, `npm run build`/`npx tsc --noEmit`.
+2. Update the PRD: mark the phase COMPLETED, record red/green evidence, and update
+   Current Status.
+3. Report the result to the user and **stop** — do not run `git add`, `git commit`, or
+   `git push` yet.
+4. Wait for explicit approval (e.g. "commit and push", "looks good", "proceed") before
+   touching git.
+5. Once approved, commit that phase's changes with a message identifying the phase
+   (e.g. `Phase 4: API endpoints`) and push to the current feature branch.
+
+## Rules
+
+- Never commit or push a phase's changes before the user has seen and approved that
+  phase's result.
+- Never bundle multiple not-yet-approved phases into one commit.
+- Don't start the next phase's implementation until the current phase is committed and
+  pushed, unless the user explicitly says to keep going without waiting.
+- This applies to completing a full Implementation Phase from a PRD. It does not gate
+  small mid-phase fixes, typo corrections, or other changes the user directly asks for.
+- Never run `git push --force` or any destructive git command without explicit
+  instruction, per the standard git safety rules.
