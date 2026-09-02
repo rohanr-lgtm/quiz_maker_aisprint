@@ -21,7 +21,9 @@ export default async function McqPage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">Question Bank</h1>
         <div className="flex items-center gap-2">
-          <Button render={<Link href="/mcq/new" />}>Create Question</Button>
+          <Button nativeButton={false} render={<Link href="/mcq/new" />}>
+            Create Question
+          </Button>
           <LogoutButton />
         </div>
       </div>

@@ -96,7 +96,7 @@ export function McqPreview({ mcqId, question, choices }: McqPreviewProps) {
         <div className="flex flex-col gap-5">
           <Field>
             <RadioGroup
-              value={selectedChoiceId ?? undefined}
+              value={selectedChoiceId ?? ""}
               onValueChange={handleSelect}
               disabled={!!result}
             >
@@ -131,7 +131,12 @@ export function McqPreview({ mcqId, question, choices }: McqPreviewProps) {
                   {isSubmitting ? "Submitting…" : "Submit Answer"}
                 </Button>
               )}
-              <Button type="button" variant="outline" render={<Link href="/mcq" />}>
+              <Button
+                type="button"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href="/mcq" />}
+              >
                 Back to Questions
               </Button>
             </div>

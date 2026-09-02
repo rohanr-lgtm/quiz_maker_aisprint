@@ -234,7 +234,7 @@ export function McqForm({ mode, mcqId, initialValues }: McqFormProps) {
             <Field data-invalid={errors.choices ? true : undefined}>
               <FieldLabel>Choices</FieldLabel>
               <RadioGroup
-                value={correctIndex >= 0 ? String(correctIndex) : undefined}
+                value={correctIndex >= 0 ? String(correctIndex) : ""}
                 onValueChange={setCorrectChoice}
               >
                 {values.choices.map((choice, index) => (
